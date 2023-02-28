@@ -12,28 +12,32 @@ from logzero import logger
 from tqdm import tqdm
 #from bs4 import BeautifulSoup
 
+SHORT_DEBUG = False
+#SHORT_DEBUG = True
+
 all_html_dir = None
 
 def load_json(path: str) -> List[Dict]:
-    print(path, file=sys.stderr)
+    #print(path, file=sys.stderr)
+    logger.debug('load json: %s', path)
     with open(path, "r", encoding="utf-8-sig") as f:
         #return [json.loads(line) for line in f.readlines()]
         lines = f.readlines()
         records = []
         for i, line in enumerate(tqdm(lines)):
-            #if i > 1000:
-            #    break
-        #if all_html_dir:
-        #    return [check_in_tag(all_html_dir, json.loads(line)) for line in f.readlines()]
-        #else:
-        #    return [json.loads(line) for line in f.readlines()]
+            if SHORT_DEBUG and i > 1000:
+                break
             rec = json.loads(line)
             if all_html_dir:
-                rec = check_in_tag(all_html_dir, rec)
+                rec = check_in_tags(all_html_dir, rec)
+            #if rec.get('html_offset'):
+            #    rec['attribute_value'] = rec['html_offset']['text']
+            #else:
+            #    rec['attribute_value'] = rec['text_offset']['text']
             records.append(rec)
         return records
 
-def check_in_tag(html_dir, rec):
+def check_in_tags(html_dir, rec):
     text = open(html_dir + '/' + rec['page_id'] + '.html').read()
     lines = text.splitlines()
     #soup = BeautifulSoup(text, 'html.parser')
@@ -47,14 +51,6 @@ def check_in_tag(html_dir, rec):
     #logger.debug(lines[start_line][start_offset:end_offset])
     substr1 = str.join('', lines[0:start_line] + [lines[start_line][0:start_offset]]).lower()
     #substr2 = str.join('', [lines[end_line][end_offset:]] + lines[end_line+1:]).lower()
-    #end_table_pos = substr2.find('</table>')
-    #if end_table_pos >= 0:
-    #    if substr2[:end_table_pos].find('<table') >= 0:
-    #        pass # 属性値の後に別のテーブルがある（属性値はテーブルに囲まれていない）
-    #    else:
-    #        #results['train_samples_in_table'] += 1
-    #        results1[ene]['train_samples_in_table'] += 1
-    #        results2[(ene,attribute)]['train_samples_in_table'] += 1
     def check_in_tag(tag, keyword=None):
         #end_table_tag = substr2.find(f'</{tag}>')
         #if end_table_tag < 0:
@@ -408,21 +404,21 @@ if __name__ == "__main__":
             #for i, line in enumerate(tqdm(f)):
             #for i, line in enumerate(train_lines):
             for i, line in enumerate(tqdm(train_lines)):
-                #if i > 10000:
-                #    break
+                if SHORT_DEBUG and i > 10000:
+                    break
                 d = json.loads(line)
                 ene = d['ENE']
                 if not ene:
                     continue
-                #attribute = d['attribute']
                 attribute = d['attribute']
-                #if ene in results:
-                #    num = results[ene].get('train_total', 0)
-                #    #results[ene]['train_total'] = num + 1
-                #    results1[ene]['train_total'] = num + 1
-                #    results2[(ene,attribute)]['train_total'] = num + 1
+                #attribute_value = d['attribute_value']
+                if d.get('text_offset'):
+                    attribute_value = d['text_offset']['text']
+                #if d.get('html_offset'):
+                #    attribute_value = d['html_offset']['text']
                 #else:
-                #    results[ene] = {'train_total': 1}
+                #    attribute_value = d['text_offset']['text']
+
                 if ene in results1:
                     #num = results1[ene].get('train_total', 0)
                     num = results1[ene].get('train_samples', 0)
@@ -430,17 +426,21 @@ if __name__ == "__main__":
                     results1[ene]['train_samples'] = num + 1
                     page_ids = results1[ene].setdefault('page_ids', set())
                     page_ids.add(d['page_id'])
+                    attribute_set = results1[ene].setdefault('attribute_set', set())
+                    attribute_set.add( (attribute,attribute_value) )
                     #results1[ene]['num_pages'] = len(results1[ene]['page_ids'])
                     results1[ene]['train_pages'] = len(results1[ene]['page_ids'])
                     #results1[ene]['train_samples_per_page'] = results1[ene]['train_total'] / results1[ene]['num_pages']
                     results1[ene]['train_samples_per_page'] = results1[ene]['train_samples'] / results1[ene]['train_pages']
+                    results1[ene]['unique_train_samples'] = len(attribute_set)
                 else:
                     #results1[ene] = {'train_total': 1}
                     results1[ene] = {'train_samples': 1}
                     results1[ene]['page_ids'] = set([d['page_id']])
-                    #results1[ene]['num_pages'] = 1
+                    results1[ene]['attribute_set'] = set( (attribute,attribute_value) )
                     results1[ene]['train_pages'] = 1
                     results1[ene]['train_samples_per_page'] = 1
+                    results1[ene]['unique_train_samples'] = 1
                 if (ene, attribute) in results2:
                     #num = results2[(ene, attribute)].get('train_total', 0)
                     num = results2[(ene, attribute)].get('train_samples', 0)
@@ -448,21 +448,25 @@ if __name__ == "__main__":
                     results2[(ene, attribute)]['train_samples'] = num + 1
                     page_ids = results2[(ene, attribute)].setdefault('page_ids', set())
                     page_ids.add(d['page_id'])
+                    attribute_set = results2[(ene, attribute)].setdefault('attribute_set', set())
+                    attribute_set.add( attribute_value )
                     #results2[(ene,attribute)]['num_pages'] = len(results2[(ene,attribute)]['page_ids'])
                     results2[(ene,attribute)]['train_pages'] = len(results2[(ene,attribute)]['page_ids'])
                     #results2[((ene, attribute))]['train_samples_per_page'] = results2[(ene, attribute)]['train_total'] / results2[(ene, attribute)]['num_pages']
                     #results2[((ene, attribute))]['train_samples_per_page'] = results2[(ene, attribute)]['train_total'] / results2[(ene, attribute)]['train_pages']
-                    results2[((ene, attribute))]['train_samples_per_page'] = results2[(ene, attribute)]['train_samples'] / results2[(ene, attribute)]['train_pages']
+                    results2[(ene, attribute)]['train_samples_per_page'] = results2[(ene, attribute)]['train_samples'] / results2[(ene, attribute)]['train_pages']
+                    results2[(ene, attribute)]['unique_train_samples'] = len(attribute_set)
                 else:
                     #results[ene] = {'train_total': 1}
                     #results2[(ene, attribute)] = {'train_total': 1}
                     results2[(ene, attribute)] = {'train_samples': 1}
                     results2[(ene, attribute)]['page_ids'] = set([d['page_id']])
-                    #results2[(ene,attribute)]['num_pages'] = 1
+                    results2[(ene, attribute)]['attribute_set'] = set( attribute_value )
                     results2[(ene,attribute)]['train_pages'] = 1
+                    results2[(ene,attribute)]['unique_train_samples'] = 1
                 if args.train_html:
                     #continue
-                    d = check_in_tag(args.train_html, d)
+                    d = check_in_tags(args.train_html, d)
                     results1[ene].setdefault('train_samples_in_table', 0)
                     results2[(ene, attribute)].setdefault('train_samples_in_table', 0)
                     results1[ene].setdefault('train_samples_in_list', 0)
@@ -479,68 +483,6 @@ if __name__ == "__main__":
                         results1[ene]['train_samples_in_infobox'] += 1
                         results2[(ene, attribute)]['train_samples_in_infobox'] += 1
 
-                    #text = open(args.train_html + '/' + d['page_id'] + '.html').read()
-                    #lines = text.splitlines()
-                    ##soup = BeautifulSoup(text, 'html.parser')
-                    ##logger.debug(soup)
-                    ##results.setdefault('train_samples_in_table', 0)
-                    #results1[ene].setdefault('train_samples_in_table', 0)
-                    #results2[(ene, attribute)].setdefault('train_samples_in_table', 0)
-                    #results1[ene].setdefault('train_samples_in_list', 0)
-                    #results2[(ene, attribute)].setdefault('train_samples_in_list', 0)
-                    #results1[ene].setdefault('train_samples_in_infobox', 0)
-                    #results2[(ene, attribute)].setdefault('train_samples_in_infobox', 0)
-                    #html_offset = d['html_offset']
-                    #start_line = html_offset['start']['line_id']
-                    #start_offset = html_offset['start']['offset']
-                    #end_line = html_offset['end']['line_id']
-                    #end_offset = html_offset['end']['offset']
-                    ##logger.debug(lines[start_line][start_offset:end_offset])
-                    #substr1 = str.join('', lines[0:start_line] + [lines[start_line][0:start_offset]]).lower()
-                    ##substr2 = str.join('', [lines[end_line][end_offset:]] + lines[end_line+1:]).lower()
-                    ##end_table_pos = substr2.find('</table>')
-                    ##if end_table_pos >= 0:
-                    ##    if substr2[:end_table_pos].find('<table') >= 0:
-                    ##        pass # 属性値の後に別のテーブルがある（属性値はテーブルに囲まれていない）
-                    ##    else:
-                    ##        #results['train_samples_in_table'] += 1
-                    ##        results1[ene]['train_samples_in_table'] += 1
-                    ##        results2[(ene,attribute)]['train_samples_in_table'] += 1
-                    #def check_in_tag(tag, keyword=None):
-                    #    #end_table_tag = substr2.find(f'</{tag}>')
-                    #    #if end_table_tag < 0:
-                    #    #    return False
-                    #    #if substr2[:end_table_tag].find(f'<{tag}') >= 0:
-                    #    #    return True
-                    #    start_tag = substr1.rfind(f'<{tag}')
-                    #    if start_tag < 0:
-                    #        return False
-                    #    end_tag = substr1.find(f'</{tag}>', start_tag)
-                    #    if end_tag >= 0:
-                    #        # 属性値の前で閉じタグがある
-                    #        return False
-                    #    if keyword:
-                    #        #tag = substr1[start_tag:end_tag+len(tag)+2]
-                    #        #logger.debug(start_tag)
-                    #        #logger.debug(end_tag)
-                    #        #logger.debug(tag)
-                    #        #if tag.find(keyword) >= 0:
-                    #        if substr1.find(keyword, start_tag) >= 0:
-                    #            return True
-                    #        else:
-                    #            return False
-                    #    return True
-                    #if check_in_tag('table'):
-                    #    results1[ene]['train_samples_in_table'] += 1
-                    #    results2[(ene,attribute)]['train_samples_in_table'] += 1
-                    #if check_in_tag('ul') or check_in_tag('ol'):
-                    #    results1[ene]['train_samples_in_list'] += 1
-                    #    results2[(ene,attribute)]['train_samples_in_list'] += 1
-                    #if check_in_tag('table', 'infobox'):
-                    #    results1[ene]['train_samples_in_infobox'] += 1
-                    #    results2[(ene,attribute)]['train_samples_in_infobox'] += 1
-                    ##EXIT
-
         #fields = ['T', 'answer_total', 'submission_total', 'valid_submission_num', 'correct_num', 'precision', 'recall', 'F-measure']
         #fields = ['ENE ID', 'ENE Ja', 'answer_total', 'submission_total', 'valid_submission_num', 'correct_num', 'precision', 'recall', 'F-measure']
         #fields = ['ENE ID', 'ENE Ja', 'answer_total', 'submission_total', 'correct_num', 'precision', 'recall', 'F-measure']
@@ -551,7 +493,8 @@ if __name__ == "__main__":
         #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_total', 'num_pages', 'train_samples_per_page', 'train_samples_in_table', 'num_pages', 'answer_total', 'submission_total', 'correct_num']
         #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num']
         #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox']
-        fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
+        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
+        fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
         writer = csv.DictWriter(sys.stdout, fieldnames=fields, extrasaction='ignore')
         writer.writeheader()
 
