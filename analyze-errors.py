@@ -76,7 +76,8 @@ def check_in_tags(html_dir, rec):
                 return False
         return True
     rec['in_table'] = check_in_tag('table')
-    rec['in_list'] = check_in_tag('ul')
+    #rec['in_list'] = check_in_tag('ul')
+    rec['in_list'] = check_in_tag('ul') or check_in_tag('ol') or check_in_tag('dl')
     rec['in_infobox'] = check_in_tag('table', 'infobox')
     return rec
 
@@ -222,6 +223,12 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
                 if answer.get('in_infobox'):
                     results[result_key]['answers_in_infobox'] += 1
                     results['all']['answers_in_infobox'] += 1
+                page_ids = results[result_key].setdefault('page_ids', set())
+                page_ids.add(answer['page_id'])
+                results[result_key]['test_pages'] = len(page_ids)
+                all_page_ids = results['all'].setdefault('all_page_ids', set())
+                all_page_ids.add(answer['page_id'])
+                results['all']['test_pages'] = len(all_page_ids)
             add_entry(results1, category)
             #results1['all']['answer_total'] += 1
             add_entry(results2, (category, attribute))
@@ -341,6 +348,15 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
             #results[macro_key]["precision"] += results[result_key]["precision"]
             #results[macro_key]["recall"] += results[result_key]["recall"]
             #results[macro_key]["F-measure"] += results[result_key]["F-measure"]
+
+            for tag_type in ['table', 'list', 'infobox']:
+                results["macro"]["f_in_" + tag_type] = \
+                    results['macro'].get('f_in_' + tag_type, 0) + \
+                    results[result_key]['f_in_' + tag_type]
+        
+            results[result_key]['error_contribution'] = results[result_key]['answer_total'] * (1 - results[result_key]['F-measure'])
+            results['all'].setdefault('error_contribution', 0)
+            results['all']['error_contribution'] += results[result_key]['error_contribution']
         #results["macro"]["precision"] /= results["macro"]["category_total"]
         #results["macro"]["recall"] /= results["macro"]["category_total"]
         #results["macro"]["F-measure"] /= results["macro"]["category_total"]
@@ -354,6 +370,16 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
         results["micro"]["recall"] = results["all"]["correct_num"] / results["all"]["answer_total"]
         results["micro"]["F-measure"] = 2.0 * results["micro"]["precision"] * results["micro"]["recall"] \
             / (results["micro"]["precision"] + results["micro"]["recall"] or 1)
+
+        results["macro"]["f_in_table"] /= len(result_keys)
+        results["macro"]["f_in_infobox"] /= len(result_keys)
+        results["macro"]["f_in_list"] /= len(result_keys)
+
+        for tag_type in ["table", "list", "infobox"]:
+            results["micro"]["precision_in_" + tag_type] = results["all"]["correct_in_" + tag_type] / (results["all"]["submission_total"] or 1)
+            results["micro"]["recall_in_" + tag_type] = results["all"]["correct_in_" + tag_type] / (results["all"]["answers_in_" + tag_type] or 1)
+            results["micro"]["f_in_" + tag_type] = 2.0 * results["micro"]["precision_in_" + tag_type] * results["micro"]["recall_in_" + tag_type] \
+                / (results["micro"]["precision_in_" + tag_type] + results["micro"]["recall_in_" + tag_type] or 1)
     score_results(results1, categories)
     score_results(results2, category_attribute_pairs)
     #score_results(results1, categories, 'category_total')
@@ -410,6 +436,7 @@ if __name__ == "__main__":
                 ene = d['ENE']
                 if not ene:
                     continue
+                page_id = d['page_id']
                 attribute = d['attribute']
                 #attribute_value = d['attribute_value']
                 if d.get('text_offset'):
@@ -428,19 +455,25 @@ if __name__ == "__main__":
                     page_ids.add(d['page_id'])
                     attribute_set = results1[ene].setdefault('attribute_set', set())
                     attribute_set.add( (attribute,attribute_value) )
+                    page_attribute_set = results1[ene].setdefault('page_attribute_set', set())
+                    page_attribute_set.add( (page_id,attribute,attribute_value) )
                     #results1[ene]['num_pages'] = len(results1[ene]['page_ids'])
-                    results1[ene]['train_pages'] = len(results1[ene]['page_ids'])
+                    results1[ene]['train_pages'] = len(page_ids)
                     #results1[ene]['train_samples_per_page'] = results1[ene]['train_total'] / results1[ene]['num_pages']
                     results1[ene]['train_samples_per_page'] = results1[ene]['train_samples'] / results1[ene]['train_pages']
-                    results1[ene]['unique_train_samples'] = len(attribute_set)
+                    results1[ene]['unique_train_attributes'] = len(attribute_set)
+                    results1[ene]['unique_train_page_attributes'] = len(page_attribute_set)
                 else:
                     #results1[ene] = {'train_total': 1}
                     results1[ene] = {'train_samples': 1}
                     results1[ene]['page_ids'] = set([d['page_id']])
                     results1[ene]['attribute_set'] = set( (attribute,attribute_value) )
+                    results1[ene]['page_attribute_set'] = set( (page_id,attribute,attribute_value) )
                     results1[ene]['train_pages'] = 1
                     results1[ene]['train_samples_per_page'] = 1
-                    results1[ene]['unique_train_samples'] = 1
+                    #results1[ene]['unique_train_samples'] = 1
+                    results1[ene]['unique_train_attributes'] = 1
+                    results1[ene]['unique_train_page_attributes'] = 1
                 if (ene, attribute) in results2:
                     #num = results2[(ene, attribute)].get('train_total', 0)
                     num = results2[(ene, attribute)].get('train_samples', 0)
@@ -450,20 +483,23 @@ if __name__ == "__main__":
                     page_ids.add(d['page_id'])
                     attribute_set = results2[(ene, attribute)].setdefault('attribute_set', set())
                     attribute_set.add( attribute_value )
-                    #results2[(ene,attribute)]['num_pages'] = len(results2[(ene,attribute)]['page_ids'])
-                    results2[(ene,attribute)]['train_pages'] = len(results2[(ene,attribute)]['page_ids'])
-                    #results2[((ene, attribute))]['train_samples_per_page'] = results2[(ene, attribute)]['train_total'] / results2[(ene, attribute)]['num_pages']
-                    #results2[((ene, attribute))]['train_samples_per_page'] = results2[(ene, attribute)]['train_total'] / results2[(ene, attribute)]['train_pages']
+                    page_attribute_set = results2[(ene, attribute)].setdefault('page_attribute_set', set())
+                    page_attribute_set.add( (page_id,attribute_value) )
+                    results2[(ene,attribute)]['train_pages'] = len(page_ids)
                     results2[(ene, attribute)]['train_samples_per_page'] = results2[(ene, attribute)]['train_samples'] / results2[(ene, attribute)]['train_pages']
-                    results2[(ene, attribute)]['unique_train_samples'] = len(attribute_set)
+                    results2[(ene, attribute)]['unique_train_attributes'] = len(attribute_set)
+                    results2[(ene, attribute)]['unique_train_page_attributes'] = len(page_attribute_set)
                 else:
                     #results[ene] = {'train_total': 1}
                     #results2[(ene, attribute)] = {'train_total': 1}
                     results2[(ene, attribute)] = {'train_samples': 1}
                     results2[(ene, attribute)]['page_ids'] = set([d['page_id']])
                     results2[(ene, attribute)]['attribute_set'] = set( attribute_value )
+                    results2[(ene, attribute)]['page_attribute_set'] = set( (page_id,attribute_value) )
                     results2[(ene,attribute)]['train_pages'] = 1
-                    results2[(ene,attribute)]['unique_train_samples'] = 1
+                    #results2[(ene,attribute)]['unique_train_samples'] = 1
+                    results2[(ene,attribute)]['unique_train_attributes'] = 1
+                    results2[(ene,attribute)]['unique_train_page_attributes'] = 1
                 if args.train_html:
                     #continue
                     d = check_in_tags(args.train_html, d)
@@ -482,6 +518,13 @@ if __name__ == "__main__":
                     if d['in_infobox']:
                         results1[ene]['train_samples_in_infobox'] += 1
                         results2[(ene, attribute)]['train_samples_in_infobox'] += 1
+                # 集計
+                results1['all']['train_samples'] = results1['all'].get('train_samples', 0) + 1
+                results2['all']['train_samples'] = results2['all'].get('train_samples', 0) + 1
+                all_page_ids = results1['all'].setdefault('page_ids', set())
+                all_page_ids.add(d['page_id'])
+                results1['all']['train_pages'] = len(all_page_ids)
+                results2['all']['train_pages'] = len(all_page_ids)
 
         #fields = ['T', 'answer_total', 'submission_total', 'valid_submission_num', 'correct_num', 'precision', 'recall', 'F-measure']
         #fields = ['ENE ID', 'ENE Ja', 'answer_total', 'submission_total', 'valid_submission_num', 'correct_num', 'precision', 'recall', 'F-measure']
@@ -494,7 +537,10 @@ if __name__ == "__main__":
         #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num']
         #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox']
         #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
-        fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
+        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
+        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_page_attributes', 'unique_train_attributes', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'test_pages', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
+        #fields = ['Key', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_page_attributes', 'unique_train_attributes', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'test_pages', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
+        fields = ['Key', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_page_attributes', 'unique_train_attributes', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'test_pages', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox', 'error_contribution']
         writer = csv.DictWriter(sys.stdout, fieldnames=fields, extrasaction='ignore')
         writer.writeheader()
 
@@ -508,6 +554,7 @@ if __name__ == "__main__":
                 attribute = ''
             #row['ENE ID'] = key
             row['ENE ID'] = ene
+            row['Key'] = ene
             #if key in ene_id2name:
             if ene in ene_id2name:
                 #row['ENE Ja'] = ene_id2name[key]
@@ -515,16 +562,18 @@ if __name__ == "__main__":
                 row['Attribute'] = attribute
             #logger.debug(row)
             if 'answer_total' not in row:
-                return
+                #if row['ENE ID'] not in ['all', 'macro', 'micro']:
+                if row['Key'] not in ['all', 'macro', 'micro']:
+                    return
             writer.writerow(row)
 
         logger.debug(results['all'])
-        #write_row('all')
-        #write_row('macro')
-        #write_row('micro')
-        del results['all']
-        del results['macro']
-        del results['micro']
+        write_row('all')
+        write_row('macro')
+        write_row('micro')
+        #del results['all']
+        #del results['macro']
+        #del results['micro']
         #for key in sorted(results.keys()):
         #for i, key in enumerate(sorted(results.keys())):
         #for i, key in enumerate(sorted(results.keys(), key=lambda k: results[k].get('F-measure', 0), reverse=True)):
