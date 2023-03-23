@@ -12,6 +12,8 @@ from logzero import logger
 from tqdm import tqdm
 #from bs4 import BeautifulSoup
 
+SHORT_DEBUG_COUNT = 1000
+#SHORT_DEBUG_COUNT = 10000
 SHORT_DEBUG = False
 #SHORT_DEBUG = True
 
@@ -25,7 +27,7 @@ def load_json(path: str) -> List[Dict]:
         lines = f.readlines()
         records = []
         for i, line in enumerate(tqdm(lines)):
-            if SHORT_DEBUG and i > 1000:
+            if SHORT_DEBUG and i > SHORT_DEBUG_COUNT:
                 break
             rec = json.loads(line)
             if all_html_dir:
@@ -79,6 +81,7 @@ def check_in_tags(html_dir, rec):
     #rec['in_list'] = check_in_tag('ul')
     rec['in_list'] = check_in_tag('ul') or check_in_tag('ol') or check_in_tag('dl')
     rec['in_infobox'] = check_in_tag('table', 'infobox')
+    rec['in_body'] = not rec['in_table'] and not rec['in_list']
     return rec
 
 def make_hashes(json_text: Dict[str, Any]) -> Tuple[Optional[int], Optional[int], str]:
@@ -111,55 +114,41 @@ def make_hashes(json_text: Dict[str, Any]) -> Tuple[Optional[int], Optional[int]
 
 def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, float]]:
 #def evaluate(submission_path: str, answer_path: str, html_dir) -> Dict[str, Dict[str, float]]:
+    #def get_initial_results() -> Dict[str, Dict[str, float]]:
+    def get_initial_results() -> Dict[Any, Dict[str, float]]:
+        return {
+            "all": {
+                "answer_total": 0,
+                "submission_total": 0,
+                "valid_submission_num": 0,
+                "correct_num": 0,
+                'answers_in_table': 0,
+                'answers_in_list': 0,
+                'answers_in_infobox': 0,
+                'answers_in_body': 0,
+                'correct_in_table': 0,
+                'correct_in_list': 0,
+                'correct_in_infobox': 0,
+                'correct_in_body': 0,
+            },
+            "macro": {
+                "precision": 0,
+                "recall": 0,
+                "F-measure": 0,
+                'f_in_table': 0,
+                'f_in_list': 0,
+                'f_in_infobox': 0,
+                'f_in_body': 0,
+            },
+            "micro": {
+                "precision": 0,
+                "recall": 0,
+                "F-measure": 0,
+            },
+        }
     #results: Dict[str, Dict[str, float]] = {
-    results1: Dict[str, Dict[str, float]] = {
-        "all": {
-            "answer_total": 0,
-            "submission_total": 0,
-            "valid_submission_num": 0,
-            "correct_num": 0,
-            'answers_in_table': 0,
-            'answers_in_list': 0,
-            'answers_in_infobox': 0,
-            'correct_in_table': 0,
-            'correct_in_list': 0,
-            'correct_in_infobox': 0,
-        },
-        "macro": {
-            "precision": 0,
-            "recall": 0,
-            "F-measure": 0,
-        },
-        "micro": {
-            "precision": 0,
-            "recall": 0,
-            "F-measure": 0,
-        }
-    }
-    results2 = {
-        "all": {
-            "answer_total": 0,
-            "submission_total": 0,
-            "valid_submission_num": 0,
-            "correct_num": 0,
-            'answers_in_table': 0,
-            'answers_in_list': 0,
-            'answers_in_infobox': 0,
-            'correct_in_table': 0,
-            'correct_in_list': 0,
-            'correct_in_infobox': 0,
-        },
-        "macro": {
-            "precision": 0,
-            "recall": 0,
-            "F-measure": 0,
-        },
-        "micro": {
-            "precision": 0,
-            "recall": 0,
-            "F-measure": 0,
-        }
-    }
+    results1: Dict[str, Dict[str, float]] = get_initial_results()
+    results2 = get_initial_results()
     submission_list: List[Dict] = load_json(submission_path)
     answer_list: List[Dict] = load_json(answer_path)
 
@@ -173,6 +162,14 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
     answers_info = {}
     categories: Set[str] = set()
     attributes: Set[str] = set()
+    categories_in_table: Set[str] = set()
+    categories_in_infobox: Set[str] = set()
+    categories_in_list: Set[str] = set()
+    categories_in_body: Set[str] = set()
+    attributes_in_table: Set[str] = set()
+    attributes_in_infobox: Set[str] = set()
+    attributes_in_list: Set[str] = set()
+    attributes_in_body: Set[str] = set()
     category_attribute_pairs = set()
     for submission in submission_list:
         hashes = make_hashes(submission)
@@ -190,6 +187,19 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
             attributes.add(attribute)
             category_attribute_pairs.add((category, attribute))
 
+            if answer.get('in_table'):
+                categories_in_table.add(category)
+                attributes_in_table.add(attribute)
+            if answer.get('in_infobox'):
+                categories_in_infobox.add(category)
+                attributes_in_infobox.add(attribute)
+            if answer.get('in_list'):
+                categories_in_list.add(category)
+                attributes_in_list.add(attribute)
+            if answer.get('in_body'):
+                categories_in_body.add(category)
+                attributes_in_body.add(attribute)
+
             def add_entry(results, result_key):
                 #if results.get(category) is None:
                 if results.get(result_key) is None:
@@ -203,9 +213,11 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
                     results[result_key]['answers_in_table'] = 0
                     results[result_key]['answers_in_list'] = 0
                     results[result_key]['answers_in_infobox'] = 0
+                    results[result_key]['answers_in_body'] = 0
                     results[result_key]['correct_in_table'] = 0
                     results[result_key]['correct_in_list'] = 0
                     results[result_key]['correct_in_infobox'] = 0
+                    results[result_key]['correct_in_body'] = 0
                 else:
                     #results[category]["answer_total"] += 1
                     results[result_key]["answer_total"] += 1
@@ -223,6 +235,9 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
                 if answer.get('in_infobox'):
                     results[result_key]['answers_in_infobox'] += 1
                     results['all']['answers_in_infobox'] += 1
+                if answer.get('in_body'):
+                    results[result_key]['answers_in_body'] += 1
+                    results['all']['answers_in_body'] += 1
                 page_ids = results[result_key].setdefault('page_ids', set())
                 page_ids.add(answer['page_id'])
                 results[result_key]['test_pages'] = len(page_ids)
@@ -248,6 +263,8 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
             if answers.get(key) is None:
                 answers[key] = hashes
                 answers_info[key] = answer
+        del results1['all']['all_page_ids']
+        del results2['all']['all_page_ids']
     process_answers()
     #process_answers(results1)
     #process_answers(results2)
@@ -295,6 +312,9 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
                         if answer_info.get('in_infobox'):
                             results[result_key]['correct_in_infobox'] += 1
                             results['all']['correct_in_infobox'] += 1
+                        if answer_info.get('in_body'):
+                            results[result_key]['correct_in_body'] += 1
+                            results['all']['correct_in_body'] += 1
             check_entry(results1, category)
             #check_entry(results1, category, 'all')
             check_entry(results2, (category, attribute))
@@ -326,33 +346,37 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
             results[result_key]["recall"] = results[result_key]["correct_num"] / results[result_key]["answer_total"]
             results[result_key]["F-measure"] = 2.0 * results[result_key]["precision"] * results[result_key]["recall"] \
                 / (results[result_key]["precision"] + results[result_key]["recall"] or 1)
-            
-            results[result_key]["precision_in_table"] = results[result_key]["correct_in_table"] / (results[result_key]["submission_total"] or 1)
-            results[result_key]["recall_in_table"] = results[result_key]["correct_in_table"] / (results[result_key]["answers_in_table"] or 1)
-            results[result_key]["f_in_table"] = 2.0 * results[result_key]["precision_in_table"] * results[result_key]["recall_in_table"] \
-                / (results[result_key]["precision_in_table"] + results[result_key]["recall_in_table"] or 1)
-            
-            results[result_key]["precision_in_list"] = results[result_key]["correct_in_list"] / (results[result_key]["submission_total"] or 1)
-            results[result_key]["recall_in_list"] = results[result_key]["correct_in_list"] / (results[result_key]["answers_in_list"] or 1)
-            results[result_key]["f_in_list"] = 2.0 * results[result_key]["precision_in_list"] * results[result_key]["recall_in_list"] \
-                / (results[result_key]["precision_in_list"] + results[result_key]["recall_in_list"] or 1)
-            
-            results[result_key]["precision_in_infobox"] = results[result_key]["correct_in_infobox"] / (results[result_key]["submission_total"] or 1)
-            results[result_key]["recall_in_infobox"] = results[result_key]["correct_in_infobox"] / (results[result_key]["answers_in_infobox"] or 1)
-            results[result_key]["f_in_infobox"] = 2.0 * results[result_key]["precision_in_infobox"] * results[result_key]["recall_in_infobox"] \
-                / (results[result_key]["precision_in_infobox"] + results[result_key]["recall_in_infobox"] or 1)
 
             results["macro"]["precision"] += results[result_key]["precision"]
             results["macro"]["recall"] += results[result_key]["recall"]
             results["macro"]["F-measure"] += results[result_key]["F-measure"]
-            #results[macro_key]["precision"] += results[result_key]["precision"]
-            #results[macro_key]["recall"] += results[result_key]["recall"]
-            #results[macro_key]["F-measure"] += results[result_key]["F-measure"]
 
-            for tag_type in ['table', 'list', 'infobox']:
-                results["macro"]["f_in_" + tag_type] = \
-                    results['macro'].get('f_in_' + tag_type, 0) + \
-                    results[result_key]['f_in_' + tag_type]
+            for tag_type in ['in_table', 'in_list', 'in_infobox', 'in_body']:
+                results[result_key]["precision_" + tag_type] = results[result_key]["correct_" + tag_type] / (results[result_key]["submission_total"] or 1)
+                results[result_key]["recall_" + tag_type] = results[result_key]["correct_" + tag_type] / results[result_key]["answer_total"]
+                results[result_key]["f_" + tag_type] = 2.0 * results[result_key]["precision_" + tag_type] * results[result_key]["recall_" + tag_type] \
+                    / (results[result_key]["precision_" + tag_type] + results[result_key]["recall_" + tag_type] or 1)
+                results["macro"]["f_" + tag_type] += results[result_key]['f_' + tag_type]
+
+            #results[result_key]["precision_in_table"] = results[result_key]["correct_in_table"] / (results[result_key]["submission_total"] or 1)
+            #results[result_key]["recall_in_table"] = results[result_key]["correct_in_table"] / (results[result_key]["answers_in_table"] or 1)
+            #results[result_key]["f_in_table"] = 2.0 * results[result_key]["precision_in_table"] * results[result_key]["recall_in_table"] \
+            #    / (results[result_key]["precision_in_table"] + results[result_key]["recall_in_table"] or 1)
+            
+            #results[result_key]["precision_in_list"] = results[result_key]["correct_in_list"] / (results[result_key]["submission_total"] or 1)
+            #results[result_key]["recall_in_list"] = results[result_key]["correct_in_list"] / (results[result_key]["answers_in_list"] or 1)
+            #results[result_key]["f_in_list"] = 2.0 * results[result_key]["precision_in_list"] * results[result_key]["recall_in_list"] \
+            #    / (results[result_key]["precision_in_list"] + results[result_key]["recall_in_list"] or 1)
+            
+            #results[result_key]["precision_in_infobox"] = results[result_key]["correct_in_infobox"] / (results[result_key]["submission_total"] or 1)
+            #results[result_key]["recall_in_infobox"] = results[result_key]["correct_in_infobox"] / (results[result_key]["answers_in_infobox"] or 1)
+            #results[result_key]["f_in_infobox"] = 2.0 * results[result_key]["precision_in_infobox"] * results[result_key]["recall_in_infobox"] \
+            #    / (results[result_key]["precision_in_infobox"] + results[result_key]["recall_in_infobox"] or 1)
+
+            #for tag_type in ['table', 'list', 'infobox']:
+            #    results["macro"]["f_in_" + tag_type] = \
+            #        results['macro'].get('f_in_' + tag_type, 0) + \
+            #        results[result_key]['f_in_' + tag_type]
         
             results[result_key]['error_contribution'] = results[result_key]['answer_total'] * (1 - results[result_key]['F-measure'])
             results['all'].setdefault('error_contribution', 0)
@@ -371,15 +395,30 @@ def evaluate(submission_path: str, answer_path: str) -> Dict[str, Dict[str, floa
         results["micro"]["F-measure"] = 2.0 * results["micro"]["precision"] * results["micro"]["recall"] \
             / (results["micro"]["precision"] + results["micro"]["recall"] or 1)
 
-        results["macro"]["f_in_table"] /= len(result_keys)
-        results["macro"]["f_in_infobox"] /= len(result_keys)
-        results["macro"]["f_in_list"] /= len(result_keys)
+        #results["macro"]["f_in_table"] /= len(result_keys)
+        #results["macro"]["f_in_infobox"] /= len(result_keys)
+        #results["macro"]["f_in_list"] /= len(result_keys)
+        if results == results1:
+            results["macro"]["f_in_table"] /= len(categories_in_table)
+            results["macro"]["f_in_infobox"] /= len(categories_in_infobox)
+            results["macro"]["f_in_list"] /= len(categories_in_list)
+            results['macro']['f_in_body'] /= len(categories_in_body)
+        if results == results2:
+            results["macro"]["f_in_table"] /= len(attributes_in_table)
+            results["macro"]["f_in_infobox"] /= len(attributes_in_infobox)
+            results["macro"]["f_in_list"] /= len(attributes_in_list)
+            results['macro']['f_in_body'] /= len(attributes_in_body)
 
-        for tag_type in ["table", "list", "infobox"]:
-            results["micro"]["precision_in_" + tag_type] = results["all"]["correct_in_" + tag_type] / (results["all"]["submission_total"] or 1)
-            results["micro"]["recall_in_" + tag_type] = results["all"]["correct_in_" + tag_type] / (results["all"]["answers_in_" + tag_type] or 1)
-            results["micro"]["f_in_" + tag_type] = 2.0 * results["micro"]["precision_in_" + tag_type] * results["micro"]["recall_in_" + tag_type] \
-                / (results["micro"]["precision_in_" + tag_type] + results["micro"]["recall_in_" + tag_type] or 1)
+        #for tag_type in ["table", "list", "infobox"]:
+        #    results["micro"]["precision_in_" + tag_type] = results["all"]["correct_in_" + tag_type] / (results["all"]["submission_total"] or 1)
+        #    results["micro"]["recall_in_" + tag_type] = results["all"]["correct_in_" + tag_type] / (results["all"]["answers_in_" + tag_type] or 1)
+        #    results["micro"]["f_in_" + tag_type] = 2.0 * results["micro"]["precision_in_" + tag_type] * results["micro"]["recall_in_" + tag_type] \
+        #        / (results["micro"]["precision_in_" + tag_type] + results["micro"]["recall_in_" + tag_type] or 1)
+        for tag_type in ['in_table', 'in_list', 'in_infobox', 'in_body']:
+            results["micro"]["precision_" + tag_type] = results["all"]["correct_" + tag_type] / (results["all"]["submission_total"] or 1)
+            results["micro"]["recall_" + tag_type] = results["all"]["correct_" + tag_type] / (results["all"]["answers_" + tag_type] or 1)
+            results["micro"]["f_" + tag_type] = 2.0 * results["micro"]["precision_" + tag_type] * results["micro"]["recall_" + tag_type] \
+                / (results["micro"]["precision_" + tag_type] + results["micro"]["recall_" + tag_type] or 1)
     score_results(results1, categories)
     score_results(results2, category_attribute_pairs)
     #score_results(results1, categories, 'category_total')
@@ -430,7 +469,8 @@ if __name__ == "__main__":
             #for i, line in enumerate(tqdm(f)):
             #for i, line in enumerate(train_lines):
             for i, line in enumerate(tqdm(train_lines)):
-                if SHORT_DEBUG and i > 10000:
+                #if SHORT_DEBUG and i > 10000:
+                if SHORT_DEBUG and i > SHORT_DEBUG_COUNT:
                     break
                 d = json.loads(line)
                 ene = d['ENE']
@@ -526,21 +566,38 @@ if __name__ == "__main__":
                 results1['all']['train_pages'] = len(all_page_ids)
                 results2['all']['train_pages'] = len(all_page_ids)
 
-        #fields = ['T', 'answer_total', 'submission_total', 'valid_submission_num', 'correct_num', 'precision', 'recall', 'F-measure']
-        #fields = ['ENE ID', 'ENE Ja', 'answer_total', 'submission_total', 'valid_submission_num', 'correct_num', 'precision', 'recall', 'F-measure']
-        #fields = ['ENE ID', 'ENE Ja', 'answer_total', 'submission_total', 'correct_num', 'precision', 'recall', 'F-measure']
-        #fields = ['ENE ID', 'ENE Ja', 'train_total', 'answer_total', 'submission_total', 'correct_num', 'precision', 'recall', 'F-measure']
-        #fields = ['ENE ID', 'ENE Ja', 'precision', 'recall', 'F-measure', 'train_total', 'num_pages', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_total', 'answer_total', 'submission_total', 'correct_num']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_total', 'num_pages', 'train_samples_per_page', 'num_pages', 'answer_total', 'submission_total', 'correct_num']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_total', 'num_pages', 'train_samples_per_page', 'train_samples_in_table', 'num_pages', 'answer_total', 'submission_total', 'correct_num']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_samples', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
-        #fields = ['ENE ID', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_page_attributes', 'unique_train_attributes', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'test_pages', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
         #fields = ['Key', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_page_attributes', 'unique_train_attributes', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'test_pages', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox']
-        fields = ['Key', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_page_attributes', 'unique_train_attributes', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'test_pages', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox', 'error_contribution']
+        #fields = ['Key', 'ENE Ja', 'Attribute', 'precision', 'recall', 'F-measure', 'train_pages', 'train_samples', 'unique_train_page_attributes', 'unique_train_attributes', 'train_samples_in_list', 'train_samples_in_table', 'train_samples_in_infobox', 'train_samples_per_page', 'answer_total', 'test_pages', 'submission_total', 'correct_num', 'answers_in_table', 'answers_in_list', 'answers_in_infobox', 'f_in_table', 'f_in_list', 'f_in_infobox', 'error_contribution']
+        fields = [
+            'Key',
+            'ENE Ja',
+            'Attribute',
+            'precision',
+            'recall',
+            'F-measure',
+            'train_pages',
+            'train_samples',
+            'unique_train_page_attributes',
+            'unique_train_attributes',
+            'train_samples_in_list',
+            'train_samples_in_table',
+            'train_samples_in_infobox',
+            'train_samples_in_body',
+            'train_samples_per_page',
+            'answer_total',
+            'test_pages',
+            'submission_total',
+            'correct_num',
+            'answers_in_table',
+            'answers_in_list',
+            'answers_in_infobox',
+            'answers_in_body',
+            'f_in_table',
+            'f_in_list',
+            'f_in_infobox',
+            'f_in_body',
+            'error_contribution'
+        ]
         writer = csv.DictWriter(sys.stdout, fieldnames=fields, extrasaction='ignore')
         writer.writeheader()
 
@@ -568,16 +625,16 @@ if __name__ == "__main__":
             writer.writerow(row)
 
         logger.debug(results['all'])
+        logger.debug(results['macro'])
         write_row('all')
         write_row('macro')
         write_row('micro')
-        #del results['all']
-        #del results['macro']
-        #del results['micro']
+        del results['all']
+        del results['macro']
+        del results['micro']
         #for key in sorted(results.keys()):
-        #for i, key in enumerate(sorted(results.keys())):
+        for i, key in enumerate(sorted(results.keys())):
         #for i, key in enumerate(sorted(results.keys(), key=lambda k: results[k].get('F-measure', 0), reverse=True)):
-        for i, key in enumerate(sorted(results.keys(), key=lambda k: results[k].get('train_total', 0), reverse=True)):
             #if i < 10:
             #    logger.debug(key)
             #else:
